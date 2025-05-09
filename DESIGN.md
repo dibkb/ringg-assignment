@@ -1,0 +1,1 @@
+![System Architecture](system.png)
