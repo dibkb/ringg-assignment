@@ -16,11 +16,6 @@
 - User Score Lookup: O(log N)
 - Rank Calculation: O(log N + R)
 
-### Optional In-Memory Cache
-
-- SortedList per game: `[(score, user_id)]`
-- Operations: O(log M) for insert, O(K) for Top-K, O(log M) for rank lookup
-
 ## 2. Persistence & Recovery
 
 ### Kafka
@@ -41,22 +36,27 @@
 - Health monitoring
 - Automated recovery on failures
 
-## 3. Scaling Strategy
+## Future Improvements
 
-### Partitioning
+### In-Memory Cache
 
-- Kafka: Partition by game_id
-- Database: Shard by game_id
-- Global game_id → shard mapping
+- SortedList per game: `[(score, user_id)]`
+- Operations: O(log M) for insert, O(K) for Top-K, O(log M) for rank lookup
 
-### Caching
+### Redis Sorted Sets Cache
 
-- Pre-warm hot game caches
-- LRU eviction policy
-- Lazy loading for cold games
+- ZSET per game with key `leaders:{game_id}`
+- Operations:
+  - ZADD: O(log M)
+  - ZREVRANGE: O(log M + K)
+  - ZREVRANK: O(log M)
+  - ZCARD: O(1)
+- Write-through consistency
+- TTL/LRU eviction policy
 
-### Consistency
+### Enhanced Caching Strategy
 
-- Strong consistency for writes
-- Eventual consistency for reads via replicas
-- Cache invalidation on updates
+- Redis Cluster with key hashing
+- Kafka partitioning by game_id hash
+- DB sharding with lookup service
+- In-memory Python cache for hot games
