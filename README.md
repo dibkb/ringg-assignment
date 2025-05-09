@@ -37,8 +37,14 @@ A Python-based application with Docker support and performance testing capabilit
    docker-compose -f docker-compose.dev.yml up --build
    ```
 
+   Note: Please wait for approximately 3 minutes for all services to initialize completely.
+
 3. Access the API documentation:
-   The Swagger UI documentation will be available at http://localhost:8000/docs
+   The Swagger UI documentation will be available at
+
+```bash
+http://localhost:8000/docs
+```
 
 ## Performance Testing
 
