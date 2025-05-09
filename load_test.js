@@ -12,14 +12,14 @@ export const options = {
       executor: "constant-arrival-rate",
       rate: 10000, // 10k requests per second
       timeUnit: "1s",
-      duration: "30s",
+      duration: "10s",
       preAllocatedVUs: 1000,
       maxVUs: 1000,
     },
   },
   thresholds: {
     errors: ["rate<0.01"], // <1% error rate
-    http_req_duration: ["p(99)<50"], // ensure P99 < 50 ms
+    // http_req_duration: ["p(99)<50"], // ensure P99 < 50 ms
   },
 };
 

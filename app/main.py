@@ -123,55 +123,121 @@ class KafkaProcessor:
         self.lock = asyncio.Lock()
         self.consumer = None
         self.producer = None
+        self.retry_count = 0
+        self.max_retries = 3
+        self.retry_delay = 1  # seconds
 
     async def start(self):
         """Start the Kafka processor"""
         self.processing = True
-        self.consumer = AIOKafkaConsumer(
-            KAFKA_CONFIG['topic'],
-            bootstrap_servers=KAFKA_CONFIG['bootstrap_servers'],
-            group_id=KAFKA_CONFIG['group_id'],
-            enable_auto_commit=True,
-            auto_commit_interval_ms=1000,
-            max_poll_records=BATCH_SIZE
-        )
-        await self.consumer.start()
+        await self._initialize_consumer()
         asyncio.create_task(self._process_messages())
 
-    async def stop(self):
-        """Stop the Kafka processor"""
-        self.processing = False
-        if self.consumer:
-            await self.consumer.stop()
-        if self.producer:
-            await self.producer.stop()
+    async def _initialize_consumer(self):
+        """Initialize Kafka consumer with retry logic"""
+        while self.retry_count < self.max_retries:
+            try:
+                self.consumer = AIOKafkaConsumer(
+                    KAFKA_CONFIG['topic'],
+                    bootstrap_servers=KAFKA_CONFIG['bootstrap_servers'],
+                    group_id=KAFKA_CONFIG['group_id'],
+                    enable_auto_commit=True,
+                    auto_commit_interval_ms=1000,
+                    max_poll_records=BATCH_SIZE,
+                    session_timeout_ms=30000,
+                    heartbeat_interval_ms=10000,
+                    max_poll_interval_ms=300000,
+                    request_timeout_ms=30000,
+                    retry_backoff_ms=1000,
+                    security_protocol="PLAINTEXT",
+                    client_id='leaderboard-consumer'
+                )
+                await self.consumer.start()
+                self.retry_count = 0  # Reset retry count on successful initialization
+                logger.info("Kafka consumer initialized successfully")
+                return
+            except Exception as e:
+                self.retry_count += 1
+                logger.error(f"Failed to initialize Kafka consumer (attempt {self.retry_count}/{self.max_retries}): {e}")
+                if self.retry_count < self.max_retries:
+                    await asyncio.sleep(self.retry_delay * self.retry_count)
+                else:
+                    logger.error("Max retries reached for Kafka consumer initialization")
+                    raise
 
     async def _process_messages(self):
-        """Main message processing loop"""
+        """Main message processing loop with error handling and reconnection logic"""
         while self.processing:
             try:
                 async with self.lock:
-                    # Get messages in batches
-                    messages = await self.consumer.getmany(timeout_ms=100)
-                    for tp, msgs in messages.items():
-                        if msgs:
-                            records = []
-                            for msg in msgs:
-                                try:
-                                    score_dict = json.loads(msg.value.decode())
-                                    records.append(ScoreRec(score_dict))
-                                except json.JSONDecodeError as e:
-                                    logger.error(f"Invalid JSON in message: {e}")
-                                except Exception as e:
-                                    logger.error(f"Error processing message: {e}")
+                    if not self.consumer:
+                        logger.info("Consumer not initialized, attempting to initialize...")
+                        await self._initialize_consumer()
+                        continue
 
-                            if records:
+                    # Get messages in batches with a shorter timeout
+                    messages = await self.consumer.getmany(timeout_ms=50)
+                    
+                    if not messages:
+                        # No messages, continue the loop
+                        continue
+                        
+                    for tp, msgs in messages.items():
+                        if not msgs:
+                            continue
+                            
+                        records = []
+                        for msg in msgs:
+                            try:
+                                score_dict = json.loads(msg.value.decode())
+                                records.append(ScoreRec(score_dict))
+                            except json.JSONDecodeError as e:
+                                logger.error(f"Invalid JSON in message: {e}")
+                            except Exception as e:
+                                logger.error(f"Error processing message: {e}")
+
+                        if records:
+                            try:
                                 await self.db.update_scores_batch(records)
                                 logger.info(f"Successfully processed batch of {len(records)} scores")
+                            except Exception as e:
+                                logger.error(f"Error updating scores batch: {e}")
+                                # Don't rethrow, continue processing other batches
 
+            except asyncio.TimeoutError:
+                # This is expected, just continue the loop
+                continue
             except Exception as e:
                 logger.error(f"Error in message processing: {e}")
-                await asyncio.sleep(1)
+                if isinstance(e, (ConnectionError, asyncio.TimeoutError)):
+                    # Reinitialize consumer on connection issues
+                    if self.consumer:
+                        try:
+                            await self.consumer.stop()
+                        except Exception as stop_error:
+                            logger.error(f"Error stopping consumer during reconnection: {stop_error}")
+                    self.consumer = None
+                    await asyncio.sleep(self.retry_delay)
+                else:
+                    await asyncio.sleep(1)
+
+    async def stop(self):
+        """Stop the Kafka processor"""
+        logger.info("Stopping Kafka processor...")
+        self.processing = False
+        if self.consumer:
+            try:
+                await self.consumer.stop()
+                logger.info("Kafka consumer stopped successfully")
+            except Exception as e:
+                logger.error(f"Error stopping Kafka consumer: {e}")
+        if self.producer:
+            try:
+                await self.producer.stop()
+                logger.info("Kafka producer stopped successfully")
+            except Exception as e:
+                logger.error(f"Error stopping Kafka producer: {e}")
+        logger.info("Kafka processor stopped")
 
 # --- Database Manager ---
 class DatabaseManager:
@@ -179,23 +245,49 @@ class DatabaseManager:
         self.pool = None
         self.kafka_processor = None
         self.producer = None
+        self.retry_count = 0
+        self.max_retries = 3
+        self.retry_delay = 1  # seconds
+        self._connection_semaphore = None
 
     async def initialize(self):
         """Initialize database connections and create tables"""
         # Initialize PostgreSQL connection pool with proper limits
         self.pool = await asyncpg.create_pool(
             **DB_CONFIG,
-            min_size=5,
-            max_size=20,
-            command_timeout=30
+            min_size=10,  # Increased minimum connections
+            max_size=50,  # Increased maximum connections
+            command_timeout=30,
+            max_inactive_connection_lifetime=300.0,
+            setup=self._setup_connection
         )
+        
+        # Create a semaphore to limit concurrent database operations
+        self._connection_semaphore = asyncio.Semaphore(20)  # Limit concurrent DB operations
 
         # Initialize Kafka producer
-        self.producer = AIOKafkaProducer(
-            bootstrap_servers=KAFKA_CONFIG['bootstrap_servers'],
-            value_serializer=lambda v: json.dumps(v).encode('utf-8')
-        )
-        await self.producer.start()
+        while self.retry_count < self.max_retries:
+            try:
+                self.producer = AIOKafkaProducer(
+                    bootstrap_servers=KAFKA_CONFIG['bootstrap_servers'],
+                    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                    request_timeout_ms=30000,
+                    retry_backoff_ms=1000,
+                    security_protocol="PLAINTEXT",
+                    client_id='leaderboard-producer'
+                )
+                await self.producer.start()
+                self.retry_count = 0  # Reset retry count on successful initialization
+                logger.info("Kafka producer initialized successfully")
+                break
+            except Exception as e:
+                self.retry_count += 1
+                logger.error(f"Failed to initialize Kafka producer (attempt {self.retry_count}/{self.max_retries}): {e}")
+                if self.retry_count < self.max_retries:
+                    await asyncio.sleep(self.retry_delay * self.retry_count)
+                else:
+                    logger.error("Max retries reached for Kafka producer initialization")
+                    raise
 
         # Create tables if they don't exist
         async with self.pool.acquire() as conn:
@@ -225,6 +317,12 @@ class DatabaseManager:
         self.kafka_processor = KafkaProcessor(self)
         await self.kafka_processor.start()
 
+    async def _setup_connection(self, connection):
+        """Setup connection with proper settings"""
+        await connection.execute('SET statement_timeout = 30000')
+        await connection.execute('SET idle_in_transaction_session_timeout = 30000')
+        await connection.execute('SET lock_timeout = 10000')
+
     async def close(self):
         """Close database connections"""
         if self.kafka_processor:
@@ -236,74 +334,99 @@ class DatabaseManager:
 
     async def process_score(self, rec: ScoreRec):
         """Process a score record asynchronously using Kafka"""
-        try:
-            # Send to Kafka topic
-            await self.producer.send_and_wait(
-                KAFKA_CONFIG['topic'],
-                value=rec.to_dict()
-            )
-        except Exception as e:
-            logger.error(f"Kafka error: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="Internal server error"
-            )
+        retry_count = 0
+        while retry_count < self.max_retries:
+            try:
+                # Send to Kafka topic
+                await self.producer.send_and_wait(
+                    KAFKA_CONFIG['topic'],
+                    value=rec.to_dict()
+                )
+                return
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"Kafka error (attempt {retry_count}/{self.max_retries}): {e}")
+                if retry_count < self.max_retries:
+                    await asyncio.sleep(self.retry_delay * retry_count)
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Internal server error"
+                    )
 
     async def update_scores_batch(self, records: List[ScoreRec]):
         """Update multiple scores in PostgreSQL in a single transaction"""
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                for rec in records:
-                    await conn.execute('''
-                        INSERT INTO scores (user_id, game_id, score, timestamp)
-                        VALUES ($1, $2, $3, $4)
-                        ON CONFLICT (user_id, game_id) 
-                        DO UPDATE SET 
-                            score = GREATEST(scores.score, $3),
-                            timestamp = $4
-                        WHERE scores.score < $3
-                    ''', rec.user_id, rec.game_id, rec.score, rec.timestamp)
+        retry_count = 0
+        while retry_count < self.max_retries:
+            try:
+                async with self._connection_semaphore:  # Limit concurrent DB operations
+                    async with self.pool.acquire() as conn:
+                        async with conn.transaction():
+                            # Process in smaller chunks to prevent memory issues
+                            chunk_size = 50
+                            for i in range(0, len(records), chunk_size):
+                                chunk = records[i:i + chunk_size]
+                                # Use executemany for better performance
+                                await conn.executemany('''
+                                    INSERT INTO scores (user_id, game_id, score, timestamp)
+                                    VALUES ($1, $2, $3, $4)
+                                    ON CONFLICT (user_id, game_id) 
+                                    DO UPDATE SET 
+                                        score = GREATEST(scores.score, $3),
+                                        timestamp = $4
+                                    WHERE scores.score < $3
+                                ''', [(rec.user_id, rec.game_id, rec.score, rec.timestamp) for rec in chunk])
+                return
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"Database error (attempt {retry_count}/{self.max_retries}): {e}")
+                if retry_count < self.max_retries:
+                    await asyncio.sleep(self.retry_delay * retry_count)
+                else:
+                    raise
 
     async def get_top_k(self, game_id: str, k: int) -> List[Leader]:
         """Get top k scores for a game"""
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch('''
-                SELECT user_id, score
-                FROM scores
-                WHERE game_id = $1
-                ORDER BY score DESC
-                LIMIT $2
-            ''', game_id, k)
-            return [Leader(row['user_id'], row['score']) for row in rows]
+        async with self._connection_semaphore:  # Limit concurrent DB operations
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch('''
+                    SELECT user_id, score
+                    FROM scores
+                    WHERE game_id = $1
+                    ORDER BY score DESC
+                    LIMIT $2
+                ''', game_id, k)
+                return [Leader(row['user_id'], row['score']) for row in rows]
 
     async def get_rank(self, game_id: str, user_id: str) -> Optional[RankInfo]:
         """Get rank information for a user in a game"""
-        async with self.pool.acquire() as conn:
-            # Get user's score
-            score_row = await conn.fetchrow('''
-                SELECT score
-                FROM scores
-                WHERE game_id = $1 AND user_id = $2
-            ''', game_id, user_id)
-            
-            if not score_row:
-                return None
+        async with self._connection_semaphore:  # Limit concurrent DB operations
+            async with self.pool.acquire() as conn:
+                # Get user's score
+                score_row = await conn.fetchrow('''
+                    SELECT score
+                    FROM scores
+                    WHERE game_id = $1 AND user_id = $2
+                ''', game_id, user_id)
+                
+                if not score_row:
+                    return None
 
-            # Get total count and user's rank
-            rank_row = await conn.fetchrow('''
-                SELECT COUNT(*) as total
-                FROM scores
-                WHERE game_id = $1 AND score > $2
-            ''', game_id, score_row['score'])
+                # Get total count and user's rank
+                rank_row = await conn.fetchrow('''
+                    SELECT COUNT(*) as total
+                    FROM scores
+                    WHERE game_id = $1 AND score > $2
+                ''', game_id, score_row['score'])
 
-            rank = rank_row['total'] + 1
-            total = await conn.fetchval('''
-                SELECT COUNT(*)
-                FROM scores
-                WHERE game_id = $1
-            ''', game_id)
+                rank = rank_row['total'] + 1
+                total = await conn.fetchval('''
+                    SELECT COUNT(*)
+                    FROM scores
+                    WHERE game_id = $1
+                ''', game_id)
 
-            return RankInfo(user_id, score_row['score'], rank, total)
+                return RankInfo(user_id, score_row['score'], rank, total)
 
 # --- FastAPI App ---
 app = FastAPI(
@@ -322,14 +445,21 @@ start_time = time.time()
 @app.on_event("startup")
 async def startup_event():
     """Initialize database connections and start background tasks"""
-    await db.initialize()
-    logger.info("Database initialized")
+    try:
+        await db.initialize()
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Close database connections"""
-    await db.close()
-    logger.info("Database connections closed")
+    try:
+        await db.close()
+        logger.info("Database connections closed")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
 
 @app.post("/ingest", response_model=ScoreResponse, status_code=201)
 async def ingest_score(data: ScoreRequest):
@@ -351,6 +481,7 @@ async def ingest_score(data: ScoreRequest):
     except HTTPException:
         raise
     except ValueError as e:
+        logger.error(f"Validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error ingesting score: {e}")
@@ -368,6 +499,7 @@ async def get_leaders(
     - **limit**: Number of leaders to return (1-100)
     """
     try:
+        logger.info(f"Getting leaders for game {game_id} with limit {limit}")
         leaders = await db.get_top_k(game_id, limit)
         entries = [
             LeaderboardEntry(
@@ -377,7 +509,9 @@ async def get_leaders(
             )
             for idx, leader in enumerate(leaders)
         ]
-        return LeaderboardResponse(game_id=game_id, entries=entries)
+        response = LeaderboardResponse(game_id=game_id, entries=entries)
+        logger.info(f"Successfully retrieved {len(entries)} leaders")
+        return response
     except Exception as e:
         logger.error(f"Error getting leaders: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get leaderboard")
@@ -394,16 +528,20 @@ async def get_rank(
     - **user_id**: Unique identifier for the user
     """
     try:
+        logger.info(f"Getting rank for user {user_id} in game {game_id}")
         rank_info = await db.get_rank(game_id, user_id)
         if rank_info is None:
+            logger.warning(f"User {user_id} not found in game {game_id}")
             raise HTTPException(status_code=404, detail="User not found in leaderboard")
         
-        return RankResponse(
+        response = RankResponse(
             game_id=game_id,
             user_id=user_id,
             rank=rank_info.rank,
             score=rank_info.score
         )
+        logger.info(f"Successfully retrieved rank: {response.dict()}")
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -414,9 +552,15 @@ async def get_rank(
 @app.head("/health")
 async def health_check():
     """Health check endpoint"""
-    return HealthResponse(
-        uptime=time.time() - start_time
-    )
+    try:
+        response = HealthResponse(
+            uptime=time.time() - start_time
+        )
+        logger.debug(f"Health check response: {response.dict()}")
+        return response
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        raise HTTPException(status_code=500, detail="Health check failed")
 
 if __name__ == "__main__":
     import uvicorn
@@ -434,5 +578,6 @@ if __name__ == "__main__":
         backlog=1024,
         http="httptools",
         ws="websockets",
-        log_level="info"
+        log_level="info",
+        access_log=True
     )
