@@ -4,15 +4,14 @@ services:
       context: .
       dockerfile: Dockerfile.k6
     volumes:
-      - ./tests/load_test.js:/tests/load_test.js
-      - ./tests/leaderboard_test.js:/tests/leaderboard_test.js
+      - ./tests:/tests
     environment:
       - K6_INFLUXDB_URL=http://influxdb:8086
       - K6_INFLUXDB_DATABASE=k6
       - K6_INFLUXDB_USERNAME=admin
       - K6_INFLUXDB_PASSWORD=admin123
       - API_URL=http://host.docker.internal:8000
-    command: ["run", "/tests/leaderboard_test.js"]
+    entrypoint: ["k6"]
     networks:
       - app-network
     depends_on:
