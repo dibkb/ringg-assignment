@@ -34,11 +34,20 @@ DB_CONFIG = {
 KAFKA_CONFIG = {
     'bootstrap_servers': os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092'),
     'topic': 'scores',
-    'group_id': 'leaderboard_processor'
+    'group_id': 'leaderboard_processor',
+    'producer_config': {
+        'bootstrap_servers': os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092'),
+        'value_serializer': lambda v: json.dumps(v).encode('utf-8'),
+        'request_timeout_ms': 1000,  # Reduced timeout
+        'retry_backoff_ms': 100,     # Faster retries
+        'security_protocol': "PLAINTEXT",
+        'client_id': 'leaderboard-producer'
+    }
 }
 
 BATCH_SIZE = 100
 MAX_RETRIES = 3
+MAX_CONCURRENT_REQUESTS = 5000  # Increased concurrent requests
 
 # --- Pydantic Models ---
 class ScoreRequest(BaseModel):
@@ -249,35 +258,32 @@ class DatabaseManager:
         self.max_retries = 3
         self.retry_delay = 1  # seconds
         self._connection_semaphore = None
+        self._request_semaphore = None
 
     async def initialize(self):
         """Initialize database connections and create tables"""
         # Initialize PostgreSQL connection pool with proper limits
         self.pool = await asyncpg.create_pool(
             **DB_CONFIG,
-            min_size=10,  # Increased minimum connections
-            max_size=50,  # Increased maximum connections
-            command_timeout=30,
+            min_size=20,  # Increased minimum connections
+            max_size=100, # Increased maximum connections
+            command_timeout=10,  # Reduced timeout
             max_inactive_connection_lifetime=300.0,
             setup=self._setup_connection
         )
         
-        # Create a semaphore to limit concurrent database operations
-        self._connection_semaphore = asyncio.Semaphore(20)  # Limit concurrent DB operations
+        # Create semaphores to limit concurrent operations
+        self._connection_semaphore = asyncio.Semaphore(50)  # Increased concurrent DB operations
+        self._request_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)  # Limit concurrent requests
 
         # Initialize Kafka producer
         while self.retry_count < self.max_retries:
             try:
                 self.producer = AIOKafkaProducer(
-                    bootstrap_servers=KAFKA_CONFIG['bootstrap_servers'],
-                    value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                    request_timeout_ms=30000,
-                    retry_backoff_ms=1000,
-                    security_protocol="PLAINTEXT",
-                    client_id='leaderboard-producer'
+                    **KAFKA_CONFIG['producer_config']
                 )
                 await self.producer.start()
-                self.retry_count = 0  # Reset retry count on successful initialization
+                self.retry_count = 0
                 logger.info("Kafka producer initialized successfully")
                 break
             except Exception as e:
@@ -291,8 +297,7 @@ class DatabaseManager:
 
         # Create tables if they don't exist
         async with self.pool.acquire() as conn:
-            # Set statement timeout at the session level
-            await conn.execute('SET statement_timeout = 30000')
+            await conn.execute('SET statement_timeout = 10000')  # Reduced timeout
             
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS scores (
@@ -334,25 +339,26 @@ class DatabaseManager:
 
     async def process_score(self, rec: ScoreRec):
         """Process a score record asynchronously using Kafka"""
-        retry_count = 0
-        while retry_count < self.max_retries:
-            try:
-                # Send to Kafka topic
-                await self.producer.send_and_wait(
-                    KAFKA_CONFIG['topic'],
-                    value=rec.to_dict()
-                )
-                return
-            except Exception as e:
-                retry_count += 1
-                logger.error(f"Kafka error (attempt {retry_count}/{self.max_retries}): {e}")
-                if retry_count < self.max_retries:
-                    await asyncio.sleep(self.retry_delay * retry_count)
-                else:
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Internal server error"
+        async with self._request_semaphore:  # Limit concurrent requests
+            retry_count = 0
+            while retry_count < self.max_retries:
+                try:
+                    # Send to Kafka topic without waiting for acknowledgment
+                    await self.producer.send(
+                        KAFKA_CONFIG['topic'],
+                        value=rec.to_dict()
                     )
+                    return
+                except Exception as e:
+                    retry_count += 1
+                    logger.error(f"Kafka error (attempt {retry_count}/{self.max_retries}): {e}")
+                    if retry_count < self.max_retries:
+                        await asyncio.sleep(self.retry_delay * retry_count)
+                    else:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Internal server error"
+                        )
 
     async def update_scores_batch(self, records: List[ScoreRec]):
         """Update multiple scores in PostgreSQL in a single transaction"""
@@ -472,12 +478,9 @@ async def ingest_score(data: ScoreRequest):
     - **timestamp**: Unix timestamp of when the score was achieved
     """
     try:
-        logger.info(f"Received ingest request: {data.dict()}")
         rec = ScoreRec(data.dict())
         await db.process_score(rec)
-        response = ScoreResponse(message="Score queued for processing")
-        logger.info(f"Successfully queued score: {response.dict()}")
-        return response
+        return ScoreResponse(message="Score queued for processing")
     except HTTPException:
         raise
     except ValueError as e:
