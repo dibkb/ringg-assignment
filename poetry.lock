@@ -13,6 +13,53 @@ files = [
 ]
 
 [[package]]
+name = "aiokafka"
+version = "0.8.1"
+description = "Kafka integration with asyncio."
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "aiokafka-0.8.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:1f6044ed270b946d31f265903b5eb101940ed0ff3a902eaf8178103c943bbcc9"},
+    {file = "aiokafka-0.8.1-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1e24839088fd6d3ff481cc09a48ea487b997328df11630bc0a1b88255edbcfe9"},
+    {file = "aiokafka-0.8.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3816bcfc3c57dfa4ed77fe1dc3a9a464e17b6400061348155115f282c8150c47"},
+    {file = "aiokafka-0.8.1-cp310-cp310-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:b2bf97548fa77ad31062ca580368d346b16ba9fdca5856c435f256f3699ab12b"},
+    {file = "aiokafka-0.8.1-cp310-cp310-win32.whl", hash = "sha256:6421ee81084532f915501074a132acb2afc8cb88bf5ddb11e584230a30f6f006"},
+    {file = "aiokafka-0.8.1-cp310-cp310-win_amd64.whl", hash = "sha256:9f19d90b7360bc2239fcd8b147508ae39c3e5b1acfc8e6a2a9b0f306070f7ffe"},
+    {file = "aiokafka-0.8.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:673c163dee62dfe45146d5250af0e395da5cc92b63f8878c592abc7dc1862899"},
+    {file = "aiokafka-0.8.1-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:4693fbe3c10f125bf3e2df8a8ccbca3eff2bdaaa6589d28c7532c10e7d84598b"},
+    {file = "aiokafka-0.8.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bbffc431d9285328c0bc108949132ae11cec863f1dd5a43a1fc3d45a69ffb8a9"},
+    {file = "aiokafka-0.8.1-cp311-cp311-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:4fccd599ab6b3fda4f4187d854b343f153b40d05d6774be9acf238618da50031"},
+    {file = "aiokafka-0.8.1-cp311-cp311-win32.whl", hash = "sha256:90960356513f3979754261b132b12a96b0d9e3c6eb44420e3a90a7c31156a81a"},
+    {file = "aiokafka-0.8.1-cp311-cp311-win_amd64.whl", hash = "sha256:7f09784322c0d2c4fcc222add4337a5ac394aa30a248eb4e0e4587a125573c75"},
+    {file = "aiokafka-0.8.1-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:ff318d29ecbeea8c58d69c91c24d48d7ed4a8d3e829b607e670d118a9a35d5ba"},
+    {file = "aiokafka-0.8.1-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:af6df9a41e08b61d7e62c0a416feeabd81bad76fa5c70d499b083d6af9ce72c3"},
+    {file = "aiokafka-0.8.1-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7d327d66b41c4e3bafff7f9efb71936a08f940aa665680717e20862e4272a068"},
+    {file = "aiokafka-0.8.1-cp38-cp38-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:24373bb2d519abac036d5b04ebc43452ef4ad1916953b6678b9801a9c93ba237"},
+    {file = "aiokafka-0.8.1-cp38-cp38-win32.whl", hash = "sha256:fd8f9e17bc9cd2ea664a7f5133aede39a8fffebffe0c450252d475dbdedb4a35"},
+    {file = "aiokafka-0.8.1-cp38-cp38-win_amd64.whl", hash = "sha256:2fa54b8b068d9d8735cb6757a0f48168f8cf9be68860b0bae6b3ed1684cef49b"},
+    {file = "aiokafka-0.8.1-cp39-cp39-macosx_10_9_x86_64.whl", hash = "sha256:bf7473c55dc7959d4b7f9d750fa6017b325813d6cb761e488c2d9ea44e922954"},
+    {file = "aiokafka-0.8.1-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c4332d37cb9d52181cfda4236566b4028c7c188549277f87bcc3027577d72b1b"},
+    {file = "aiokafka-0.8.1-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1f43d2afd7d3e4407ada8d754895fad7c344ca00648a8a38418d76564eaaf6cd"},
+    {file = "aiokafka-0.8.1-cp39-cp39-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:a8a641a8102c51422afe111d4bc70c51f335f38fc5906e4c839bd17afeaf3cb2"},
+    {file = "aiokafka-0.8.1-cp39-cp39-win32.whl", hash = "sha256:935da8c4da9a00a1e16020d88e578206097b4bb72ebc2a25fbd2cb817907ef28"},
+    {file = "aiokafka-0.8.1-cp39-cp39-win_amd64.whl", hash = "sha256:45cd28af6590d6a999bb706803166570121ba8a5a0d06c51ebd8a59fab53593c"},
+    {file = "aiokafka-0.8.1.tar.gz", hash = "sha256:d300188e358cd29989c817f6ee2a2965a039e5a71de8ade6f80f02ebb9bd07b8"},
+]
+
+[package.dependencies]
+async-timeout = "*"
+kafka-python = ">=2.0.2"
+packaging = "*"
+
+[package.extras]
+all = ["gssapi", "lz4", "python-snappy (>=0.5)", "zstandard"]
+gssapi = ["gssapi"]
+lz4 = ["lz4"]
+snappy = ["python-snappy (>=0.5)"]
+zstd = ["zstandard"]
+
+[[package]]
 name = "annotated-types"
 version = "0.7.0"
 description = "Reusable constraint types to use with typing.Annotated"
@@ -53,7 +100,6 @@ description = "Timeout context manager for asyncio programs"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "python_version < \"3.12.0\""
 files = [
     {file = "async_timeout-5.0.1-py3-none-any.whl", hash = "sha256:39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c"},
     {file = "async_timeout-5.0.1.tar.gz", hash = "sha256:d9321a7a3d5a6a5e187e824d2fa0793ce379a202935782d555d6e9d2735677d3"},
@@ -462,6 +508,21 @@ files = [
 colors = ["colorama (>=0.4.6)"]
 
 [[package]]
+name = "kafka-python"
+version = "2.0.2"
+description = "Pure Python client for Apache Kafka"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "kafka-python-2.0.2.tar.gz", hash = "sha256:04dfe7fea2b63726cd6f3e79a2d86e709d608d74406638c5da33a01d45a9d7e3"},
+    {file = "kafka_python-2.0.2-py2.py3-none-any.whl", hash = "sha256:2d92418c7cb1c298fa6c7f0fb3519b520d0d7526ac6cb7ae2a4fc65a51a94b6e"},
+]
+
+[package.extras]
+crc32c = ["crc32c"]
+
+[[package]]
 name = "mypy"
 version = "1.15.0"
 description = "Optional static typing for Python"
@@ -615,7 +676,7 @@ version = "25.0"
 description = "Core utilities for Python packages"
 optional = false
 python-versions = ">=3.8"
-groups = ["dev"]
+groups = ["main", "dev"]
 files = [
     {file = "packaging-25.0-py3-none-any.whl", hash = "sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484"},
     {file = "packaging-25.0.tar.gz", hash = "sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f"},
@@ -801,6 +862,30 @@ files = [
 typing-extensions = ">=4.6.0,<4.7.0 || >4.7.0"
 
 [[package]]
+name = "pydantic-settings"
+version = "2.9.1"
+description = "Settings management using Pydantic"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "pydantic_settings-2.9.1-py3-none-any.whl", hash = "sha256:59b4f431b1defb26fe620c71a7d3968a710d719f5f4cdbbdb7926edeb770f6ef"},
+    {file = "pydantic_settings-2.9.1.tar.gz", hash = "sha256:c509bf79d27563add44e8446233359004ed85066cd096d8b510f715e6ef5d268"},
+]
+
+[package.dependencies]
+pydantic = ">=2.7.0"
+python-dotenv = ">=0.21.0"
+typing-inspection = ">=0.4.0"
+
+[package.extras]
+aws-secrets-manager = ["boto3 (>=1.35.0)", "boto3-stubs[secretsmanager]"]
+azure-key-vault = ["azure-identity (>=1.16.0)", "azure-keyvault-secrets (>=4.8.0)"]
+gcp-secret-manager = ["google-cloud-secret-manager (>=2.23.1)"]
+toml = ["tomli (>=2.0.1)"]
+yaml = ["pyyaml (>=6.0.1)"]
+
+[[package]]
 name = "pyjwt"
 version = "2.9.0"
 description = "JSON Web Token implementation in Python"
@@ -840,6 +925,21 @@ tomli = {version = ">=1.0.0", markers = "python_version < \"3.11\""}
 
 [package.extras]
 testing = ["argcomplete", "attrs (>=19.2.0)", "hypothesis (>=3.56)", "mock", "nose", "pygments (>=2.7.2)", "requests", "setuptools", "xmlschema"]
+
+[[package]]
+name = "python-dotenv"
+version = "1.1.0"
+description = "Read key-value pairs from a .env file and set them as environment variables"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "python_dotenv-1.1.0-py3-none-any.whl", hash = "sha256:d7c01d9e2293916c18baf562d95698754b0dbbb5e74d457c45d4f6561fb9d55d"},
+    {file = "python_dotenv-1.1.0.tar.gz", hash = "sha256:41f90bc6f5f177fb41f53e87666db362025010eb28f60a01c9143bfa33a2b2d5"},
+]
+
+[package.extras]
+cli = ["click (>=5.0)"]
 
 [[package]]
 name = "redis"
@@ -1043,4 +1143,4 @@ test = ["Cython (>=0.29.36,<0.30.0)", "aiohttp (==3.9.0b0)", "aiohttp (>=3.8.1)"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "ebf2c1fcc30ae2ec3fcacfea573a47bb74d7e30bd8a868c77426e27649a4dad3"
+content-hash = "ffb380eb0e2bea1ee8774be3ae19d53bf9489f419990e36ccb3c9da0fc785e0c"

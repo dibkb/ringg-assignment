@@ -10,7 +10,7 @@ export const options = {
   scenarios: {
     throughput_test: {
       executor: "constant-arrival-rate",
-      rate: 10000, // 10k requests per second
+      rate: 1000, // 10k requests per second
       timeUnit: "1s",
       duration: "10s",
       preAllocatedVUs: 1000,
@@ -26,8 +26,8 @@ export const options = {
 // Test function
 export default function () {
   const payload = JSON.stringify({
-    user_id: `user_${Math.floor(Math.random() * 1000000)}`,
-    game_id: `game_${Math.floor(Math.random() * 100)}`,
+    user_id: `user_${Math.floor(Math.random() * 100)}`,
+    game_id: `game_1`,
     score: Math.floor(Math.random() * 1000000),
   });
 

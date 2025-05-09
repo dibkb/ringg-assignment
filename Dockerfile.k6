@@ -2,6 +2,6 @@ FROM grafana/k6:latest
 
 WORKDIR /tests
 
-COPY load_test.js .
+COPY /tests .
 
-ENTRYPOINT ["k6", "run", "load_test.js"] 
+ENTRYPOINT ["k6"] 
