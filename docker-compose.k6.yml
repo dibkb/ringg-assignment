@@ -1,0 +1,93 @@
+services:
+  k6:
+    build:
+      context: .
+      dockerfile: Dockerfile.k6
+    volumes:
+      - ./load_test.js:/tests/load_test.js
+    environment:
+      - K6_INFLUXDB_URL=http://influxdb:8086
+      - K6_INFLUXDB_DATABASE=k6
+      - K6_INFLUXDB_USERNAME=admin
+      - K6_INFLUXDB_PASSWORD=admin123
+    networks:
+      - app-network
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: "no"
+
+  influxdb:
+    image: influxdb:1.8
+    ports:
+      - "8086:8086"
+    environment:
+      - INFLUXDB_DB=k6
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=admin123
+      - INFLUXDB_HTTP_BIND_ADDRESS=0.0.0.0:8086
+      - INFLUXDB_HTTP_AUTH_ENABLED=false
+      - INFLUXDB_HTTP_LOG_ENABLED=true
+      - INFLUXDB_HTTP_WRITE_TRACING=false
+      - INFLUXDB_HTTP_PPROF_ENABLED=false
+      - INFLUXDB_DATA_QUERY_LOG_ENABLED=false
+      - INFLUXDB_CONTINUOUS_QUERIES_ENABLED=false
+      - INFLUXDB_LOGGING_LEVEL=info
+      - INFLUXDB_DATA_WAL_DIR=/var/lib/influxdb/wal
+      - INFLUXDB_DATA_DIR=/var/lib/influxdb/data
+      - INFLUXDB_META_DIR=/var/lib/influxdb/meta
+    volumes:
+      - influxdb_data:/var/lib/influxdb
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "influx", "-execute", "SHOW DATABASES"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    command: >
+      bash -c '
+        rm -rf /var/lib/influxdb/wal/* 2>/dev/null || true;
+        influxd -config /etc/influxdb/influxdb.conf &
+        until influx -host localhost -port 8086 -execute "SHOW DATABASES" > /dev/null 2>&1; do
+          echo "Waiting for InfluxDB to be ready..."
+          sleep 1
+        done;
+        echo "InfluxDB is ready, creating admin user and database...";
+        influx -host localhost -port 8086 -execute "CREATE USER admin WITH PASSWORD '\''admin123'\'' WITH ALL PRIVILEGES";
+        influx -host localhost -port 8086 -execute "CREATE DATABASE k6";
+        influx -host localhost -port 8086 -execute "ALTER RETENTION POLICY autogen ON k6 DURATION 7d REPLICATION 1 DEFAULT";
+        influx -host localhost -port 8086 -execute "SET PASSWORD FOR admin = '\''admin123'\''";
+        influx -host localhost -port 8086 -execute "GRANT ALL PRIVILEGES TO admin";
+        wait
+      '
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - app-network
+    depends_on:
+      - influxdb
+    restart: "no"
+
+networks:
+  app-network:
+    name: app-network
+    driver: bridge
+
+volumes:
+  influxdb_data:
+    name: influxdb_data
+  grafana_data:
