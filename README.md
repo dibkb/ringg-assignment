@@ -20,7 +20,6 @@ This project is a Python-based application with Docker support and performance t
 ├── Dockerfile.mac         # Docker configuration for Mac
 ├── Dockerfile.k6          # k6 Docker configuration
 ├── k6.yml                 # k6 test configuration
-├── grafana-dashboard.json # Grafana dashboard configuration
 └── pyproject.toml         # Poetry project configuration
 ```
 
@@ -34,16 +33,10 @@ This project is a Python-based application with Docker support and performance t
 
 2. Run the application in development mode:
    ```bash
-   docker-compose -f docker-compose.dev.yml up
+   docker-compose -f docker-compose.dev.yml up --build
    ```
 
 ## Performance Testing
-
-To run performance tests using k6:
-
-```bash
-docker-compose -f docker-compose.dev.yml up --build
-```
 
 To test specific endpoints using k6:
 
@@ -51,4 +44,8 @@ To test specific endpoints using k6:
 docker-compose -f docker-compose.k6.yml run k6 run /tests/read/latency.js
 ```
 
-The test file `latency.js` is located in the `/tests/read/` directory and contains the performance test scenarios for the endpoints.
+The test files are located `latency.js` is located in the `/tests/read/` directory and contains the performance test scenarios for the endpoints.
+
+Here are few of the testing results
+![Test Results Example 1](test-1.png)
+![Test Results Example 1](test-01.png)
