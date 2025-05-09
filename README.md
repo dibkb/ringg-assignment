@@ -39,6 +39,10 @@ A Python-based application with Docker support and performance testing capabilit
 
    Note: Please wait for approximately 3 minutes for all services to initialize completely.
 
+   After sucessful initialization, the logs will look something like this
+
+   ![Init Logs](init.png)
+
 3. Access the API documentation:
    The Swagger UI documentation will be available at
 
