@@ -12,11 +12,10 @@ import os
 import aiofiles
 from pathlib import Path as PathLibPath
 import asyncpg
-from redis.asyncio import Redis
+from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
 from fastapi import FastAPI, HTTPException, Query, Path
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field, validator
-import redis
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,15 +30,13 @@ DB_CONFIG = {
     'password': os.getenv('POSTGRES_PASSWORD', 'postgres')
 }
 
-# Redis configuration
-REDIS_CONFIG = {
-    'host': os.getenv('REDIS_HOST', 'localhost'),
-    'port': int(os.getenv('REDIS_PORT', 6379))
+# Kafka configuration
+KAFKA_CONFIG = {
+    'bootstrap_servers': os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092'),
+    'topic': 'scores',
+    'group_id': 'leaderboard_processor'
 }
 
-# Queue name for score processing
-SCORE_QUEUE = 'score_queue'
-DEAD_LETTER_QUEUE = 'dead_letter_queue'
 BATCH_SIZE = 100
 MAX_RETRIES = 3
 
@@ -118,95 +115,70 @@ class RankInfo:
         self.rank = rank
         self.percentile = 100 * (1 - (rank - 1) / total)
 
-class QueueProcessor:
+class KafkaProcessor:
     def __init__(self, db_manager):
         self.db = db_manager
         self.processing = False
         self.batch = []
         self.lock = asyncio.Lock()
-        self.retry_delays = [1, 5, 15]  # Exponential backoff delays in seconds
+        self.consumer = None
+        self.producer = None
 
     async def start(self):
-        """Start the queue processor"""
+        """Start the Kafka processor"""
         self.processing = True
-        asyncio.create_task(self._process_queue())
+        self.consumer = AIOKafkaConsumer(
+            KAFKA_CONFIG['topic'],
+            bootstrap_servers=KAFKA_CONFIG['bootstrap_servers'],
+            group_id=KAFKA_CONFIG['group_id'],
+            enable_auto_commit=True,
+            auto_commit_interval_ms=1000,
+            max_poll_records=BATCH_SIZE
+        )
+        await self.consumer.start()
+        asyncio.create_task(self._process_messages())
 
     async def stop(self):
-        """Stop the queue processor"""
+        """Stop the Kafka processor"""
         self.processing = False
+        if self.consumer:
+            await self.consumer.stop()
+        if self.producer:
+            await self.producer.stop()
 
-    async def _process_queue(self):
-        """Main queue processing loop"""
+    async def _process_messages(self):
+        """Main message processing loop"""
         while self.processing:
             try:
-                # Process in batches
                 async with self.lock:
-                    if len(self.batch) < BATCH_SIZE:
-                        # Try to get more items from queue
-                        score_data = await self.db.redis.brpop(SCORE_QUEUE, timeout=0.1)
-                        if score_data:
-                            _, score_json = score_data
-                            self.batch.append(score_json)
+                    # Get messages in batches
+                    messages = await self.consumer.getmany(timeout_ms=100)
+                    for tp, msgs in messages.items():
+                        if msgs:
+                            records = []
+                            for msg in msgs:
+                                try:
+                                    score_dict = json.loads(msg.value.decode())
+                                    records.append(ScoreRec(score_dict))
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"Invalid JSON in message: {e}")
+                                except Exception as e:
+                                    logger.error(f"Error processing message: {e}")
 
-                    # Process batch if we have items
-                    if self.batch:
-                        await self._process_batch()
-            except redis.ConnectionError as e:
-                logger.error(f"Redis connection error: {e}")
-                await asyncio.sleep(5)  # Wait before retrying
+                            if records:
+                                await self.db.update_scores_batch(records)
+                                logger.info(f"Successfully processed batch of {len(records)} scores")
+
             except Exception as e:
-                logger.error(f"Unexpected error in queue processing: {e}")
+                logger.error(f"Error in message processing: {e}")
                 await asyncio.sleep(1)
-
-    async def _process_batch(self):
-        """Process a batch of scores"""
-        try:
-            # Convert batch items to ScoreRec objects
-            records = []
-            for score_json in self.batch:
-                try:
-                    score_dict = json.loads(score_json)
-                    records.append(ScoreRec(score_dict))
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON in queue: {e}")
-                    await self._move_to_dead_letter(score_json, "invalid_json")
-                except Exception as e:
-                    logger.error(f"Error processing score: {e}")
-                    await self._move_to_dead_letter(score_json, str(e))
-
-            if records:
-                # Update scores in batch
-                await self.db.update_scores_batch(records)
-                logger.info(f"Successfully processed batch of {len(records)} scores")
-
-            # Clear the batch
-            self.batch = []
-        except Exception as e:
-            logger.error(f"Error processing batch: {e}")
-            # Move failed items to dead letter queue
-            for score_json in self.batch:
-                await self._move_to_dead_letter(score_json, str(e))
-            self.batch = []
-
-    async def _move_to_dead_letter(self, score_json: str, error: str):
-        """Move failed item to dead letter queue with error information"""
-        try:
-            dead_letter_item = {
-                'score': score_json,
-                'error': error,
-                'timestamp': time.time()
-            }
-            await self.db.redis.lpush(DEAD_LETTER_QUEUE, json.dumps(dead_letter_item))
-        except Exception as e:
-            logger.error(f"Error moving to dead letter queue: {e}")
 
 # --- Database Manager ---
 class DatabaseManager:
     def __init__(self):
         self.pool = None
-        self.redis = None
-        self.lock = asyncio.Lock()
-        self.queue_processor = None
+        self.kafka_processor = None
+        self.producer = None
 
     async def initialize(self):
         """Initialize database connections and create tables"""
@@ -217,16 +189,13 @@ class DatabaseManager:
             max_size=20,
             command_timeout=30
         )
-        
-        # Initialize Redis connection
-        self.redis = Redis(
-            host=REDIS_CONFIG['host'],
-            port=REDIS_CONFIG['port'],
-            decode_responses=True,
-            socket_timeout=5,
-            socket_connect_timeout=5,
-            retry_on_timeout=True
+
+        # Initialize Kafka producer
+        self.producer = AIOKafkaProducer(
+            bootstrap_servers=KAFKA_CONFIG['bootstrap_servers'],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
         )
+        await self.producer.start()
 
         # Create tables if they don't exist
         async with self.pool.acquire() as conn:
@@ -252,32 +221,29 @@ class DatabaseManager:
                 ON scores(game_id, score DESC)
             ''')
 
-        # Initialize queue processor
-        self.queue_processor = QueueProcessor(self)
-        await self.queue_processor.start()
+        # Initialize Kafka processor
+        self.kafka_processor = KafkaProcessor(self)
+        await self.kafka_processor.start()
 
     async def close(self):
         """Close database connections"""
-        if self.queue_processor:
-            await self.queue_processor.stop()
+        if self.kafka_processor:
+            await self.kafka_processor.stop()
         if self.pool:
             await self.pool.close()
-        if self.redis:
-            await self.redis.close()
+        if self.producer:
+            await self.producer.stop()
 
     async def process_score(self, rec: ScoreRec):
-        """Process a score record asynchronously"""
+        """Process a score record asynchronously using Kafka"""
         try:
-            # Add to Redis queue for async processing
-            await self.redis.lpush(SCORE_QUEUE, json.dumps(rec.to_dict()))
-        except redis.ConnectionError:
-            logger.error("Redis connection error")
-            raise HTTPException(
-                status_code=503,
-                detail="Service temporarily unavailable"
+            # Send to Kafka topic
+            await self.producer.send_and_wait(
+                KAFKA_CONFIG['topic'],
+                value=rec.to_dict()
             )
-        except redis.RedisError as e:
-            logger.error(f"Redis error: {e}")
+        except Exception as e:
+            logger.error(f"Kafka error: {e}")
             raise HTTPException(
                 status_code=500,
                 detail="Internal server error"
@@ -343,7 +309,7 @@ class DatabaseManager:
 app = FastAPI(
     default_response_class=ORJSONResponse,
     title="Leaderboard Service",
-    description="High-performance leaderboard service with PostgreSQL and Redis",
+    description="High-performance leaderboard service with PostgreSQL and Kafka",
     version="1.0.0"
 )
 

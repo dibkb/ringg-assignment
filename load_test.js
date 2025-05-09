@@ -10,59 +10,43 @@ export const options = {
   scenarios: {
     throughput_test: {
       executor: "constant-arrival-rate",
-      rate: 100,
-      timeUnit: "1s", // per second
-      duration: "10s", // for 1 minute
+      rate: 10000, // 10k requests per second
+      timeUnit: "1s",
+      duration: "30s",
       preAllocatedVUs: 1000,
       maxVUs: 1000,
     },
   },
   thresholds: {
-    errors: ["rate<0.1"], // <10% error rate
-    http_req_duration: ["p(99)<50"], // ensure P99 < 50 ms
+    errors: ["rate<0.01"], // <1% error rate
+    http_req_duration: ["p(99)<50"], // ensure P99 < 50 ms
   },
 };
 
-// Helpers
-function generateRandomScore() {
-  return Math.floor(Math.random() * 10000);
-}
-function generateRandomUserId() {
-  return `user_${Math.floor(Math.random() * 100000)}`;
-}
-function generateRandomGameId() {
-  return `game_${Math.floor(Math.random() * 100)}`;
-}
-
+// Test function
 export default function () {
-  const baseUrl = __ENV.API_URL || "http://app:8000";
-
-  const payload = {
-    user_id: generateRandomUserId(),
-    game_id: generateRandomGameId(),
-    score: generateRandomScore(),
-    timestamp: Date.now() / 1000, // epoch seconds
-  };
-
-  const params = {
-    headers: { "Content-Type": "application/json" },
-    tags: { endpoint: "ingest", game_id: payload.game_id },
-  };
-
-  const res = http.post(`${baseUrl}/ingest`, JSON.stringify(payload), params);
-
-  const ok = check(res, {
-    "status is 201": (r) => r.status === 201,
-    "body.status is ok": (r) => {
-      try {
-        return JSON.parse(r.body).status === "success";
-      } catch {
-        return false;
-      }
-    },
+  const payload = JSON.stringify({
+    user_id: `user_${Math.floor(Math.random() * 1000000)}`,
+    game_id: `game_${Math.floor(Math.random() * 100)}`,
+    score: Math.floor(Math.random() * 1000000),
   });
 
-  if (!ok) {
-    errorRate.add(1);
-  }
+  const params = {
+    headers: {
+      "Content-Type": "application/json",
+    },
+  };
+
+  const response = http.post(
+    "http://host.docker.internal:8000/ingest",
+    payload,
+    params
+  );
+
+  check(response, {
+    "status is 201": (r) => r.status === 201,
+    "response has success status": (r) => r.json().status === "success",
+  });
+
+  errorRate.add(response.status !== 201);
 }
