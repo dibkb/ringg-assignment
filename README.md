@@ -32,9 +32,13 @@ A Python-based application with Docker support and performance testing capabilit
    ```
 
 2. Run the application in development mode:
+
    ```bash
    docker-compose -f docker-compose.dev.yml up --build
    ```
+
+3. Access the API documentation:
+   The Swagger UI documentation will be available at http://localhost:8000/docs
 
 ## Performance Testing
 
