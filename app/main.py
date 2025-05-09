@@ -3,14 +3,9 @@ import time
 
 from .routes import leaderboard,score,health
 from .logger import get_logger
-from .models.data import ScoreRec
-
-from .models.response import HealthResponse, LeaderboardEntry, LeaderboardResponse, RankResponse, ScoreResponse
-from .models.score import ScoreRequest
-
-from fastapi import FastAPI, HTTPException, Query, Path
+from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
-from .database.main import DatabaseManager
+from .database import DatabaseManager
 # Configure logging
 logger = get_logger()
 
@@ -21,9 +16,6 @@ app = FastAPI(
     description="High-performance leaderboard service with PostgreSQL and Kafka",
     version="1.0.0"
 )
-
-# Track application start time
-start_time = time.time()
 
 @app.on_event("startup")
 async def startup_event():

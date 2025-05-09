@@ -1,4 +1,4 @@
-from ..database.main import DatabaseManager
+from ..database import DatabaseManager
 from ..logger import get_logger
 import asyncio
 

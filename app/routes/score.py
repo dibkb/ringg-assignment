@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from ..models.score import ScoreRequest
 from ..models.response import ScoreResponse
 from ..models.data import ScoreRec
-from ..database.main import DatabaseManager
+from ..database import DatabaseManager
 from ..logger import get_logger
 
 logger = get_logger()

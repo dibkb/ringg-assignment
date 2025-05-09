@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Path
 from ..models.response import LeaderboardResponse, RankResponse, LeaderboardEntry
-from ..database.main import DatabaseManager
+from ..database import DatabaseManager
 from ..logger import get_logger
 
 logger = get_logger()
