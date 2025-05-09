@@ -1,6 +1,6 @@
 # Ring Assignment
 
-This project is a Python-based application with Docker support and performance testing capabilities using k6.
+A Python-based application with Docker support and performance testing capabilities using k6.
 
 ## Prerequisites
 
@@ -38,14 +38,35 @@ This project is a Python-based application with Docker support and performance t
 
 ## Performance Testing
 
-To test specific endpoints using k6:
+### Read Endpoints (Top-k)
+
+Run latency tests:
 
 ```bash
 docker-compose -f docker-compose.k6.yml run k6 run /tests/read/latency.js
 ```
 
-The test files are located `latency.js` is located in the `/tests/read/` directory and contains the performance test scenarios for the endpoints.
+Run stress tests:
 
-Here are few of the testing results
+```bash
+docker-compose -f docker-compose.k6.yml run k6 run /tests/read/stress.js
+```
+
+### Write Endpoints (Ingest)
+
+Run latency tests:
+
+```bash
+docker-compose -f docker-compose.k6.yml run k6 run /tests/write/latency.js
+```
+
+Run stress tests:
+
+```bash
+docker-compose -f docker-compose.k6.yml run k6 run /tests/write/stress.js
+```
+
+## Test Results
+
 ![Test Results Example 1](test-1.png)
-![Test Results Example 1](test-01.png)
+![Test Results Example 2](test-01.png)
