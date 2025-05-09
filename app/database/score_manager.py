@@ -2,6 +2,7 @@ from typing import List, Optional
 import asyncio
 from ..models.data import Leader, RankInfo, ScoreRec
 from ..logger import get_logger
+from datetime import datetime
 
 logger = get_logger()
 
@@ -45,50 +46,90 @@ class ScoreManager:
                 else:
                     raise
 
-    async def get_top_k(self, game_id: str, k: int) -> List[Leader]:
-        """Get top k scores for a game"""
+    async def get_top_k(self, game_id: str, k: int, window_timestamp: Optional[datetime] = None) -> List[Leader]:
+        """Get top k scores for a game, optionally filtered by time window"""
         await self.db.acquire_connection_semaphore()
         try:
             async with self.db.pool.acquire() as conn:
-                rows = await conn.fetch('''
-                    SELECT user_id, score
-                    FROM scores
-                    WHERE game_id = $1
+                query = '''
+                    WITH filtered_scores AS (
+                        SELECT user_id, score, timestamp
+                        FROM scores
+                        WHERE game_id = $1
+                '''
+                params = [game_id]
+                
+                if window_timestamp is not None:
+                    unix_timestamp = window_timestamp.timestamp()
+                    query += ' AND timestamp >= $2'
+                    params.append(unix_timestamp)
+                
+                query += '''
+                    )
+                    SELECT user_id, score, timestamp
+                    FROM filtered_scores
                     ORDER BY score DESC
-                    LIMIT $2
-                ''', game_id, k)
+                    LIMIT $''' + str(len(params) + 1)
+                params.append(k)
+                
+                rows = await conn.fetch(query, *params)
+                
+                if window_timestamp is not None:
+                    filtered_rows = [row for row in rows if row['timestamp'] >= unix_timestamp]
+                    rows = filtered_rows
+                
                 return [Leader(row['user_id'], row['score']) for row in rows]
         finally:
             self.db.release_connection_semaphore()
 
-    async def get_rank(self, game_id: str, user_id: str) -> Optional[RankInfo]:
-        """Get rank information for a user in a game"""
+    async def get_rank(self, game_id: str, user_id: str, window_timestamp: Optional[datetime] = None) -> Optional[RankInfo]:
+        """Get rank information for a user in a game, optionally filtered by time window"""
         await self.db.acquire_connection_semaphore()
         try:
             async with self.db.pool.acquire() as conn:
+                # Base conditions for all queries
+                base_conditions = 'game_id = $1'
+                params = [game_id]
+                
+                if window_timestamp is not None:
+                    unix_timestamp = window_timestamp.timestamp()
+                    base_conditions += ' AND timestamp >= $2'
+                    params.append(unix_timestamp)
+                
                 # Get user's score
-                score_row = await conn.fetchrow('''
-                    SELECT score
+                score_query = f'''
+                    SELECT score, timestamp
                     FROM scores
-                    WHERE game_id = $1 AND user_id = $2
-                ''', game_id, user_id)
+                    WHERE {base_conditions} AND user_id = ${len(params) + 1}
+                '''
+                score_params = params + [user_id]
+                score_row = await conn.fetchrow(score_query, *score_params)
                 
                 if not score_row:
                     return None
 
+                if window_timestamp is not None:
+                    if score_row['timestamp'] < unix_timestamp:
+                        return None
+
                 # Get total count and user's rank
-                rank_row = await conn.fetchrow('''
+                rank_query = f'''
                     SELECT COUNT(*) as total
                     FROM scores
-                    WHERE game_id = $1 AND score > $2
-                ''', game_id, score_row['score'])
+                    WHERE {base_conditions} AND score > ${len(params) + 1}
+                '''
+                rank_params = params + [score_row['score']]
+                rank_row = await conn.fetchrow(rank_query, *rank_params)
 
                 rank = rank_row['total'] + 1
-                total = await conn.fetchval('''
+                
+                # Get total count for percentile calculation
+                total_query = f'''
                     SELECT COUNT(*)
                     FROM scores
-                    WHERE game_id = $1
-                ''', game_id)
+                    WHERE {base_conditions}
+                '''
+                total = await conn.fetchval(total_query, *params)
 
                 return RankInfo(
                     user_id=user_id,

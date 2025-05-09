@@ -7,6 +7,7 @@ from .kafka_manager import KafkaManager
 from .score_manager import ScoreManager
 from ..config import kafka
 from ..logger import get_logger
+from datetime import datetime
 
 logger = get_logger()
 
@@ -90,17 +91,17 @@ class DatabaseManager:
             await self.initialize()
         await self.score_manager.update_scores_batch(records)
 
-    async def get_top_k(self, game_id: str, k: int) -> List[Leader]:
+    async def get_top_k(self, game_id: str, k: int, window_timestamp: Optional[datetime] = None) -> List[Leader]:
         """Get top k scores for a game"""
         if not self._initialized:
             await self.initialize()
-        return await self.score_manager.get_top_k(game_id, k)
+        return await self.score_manager.get_top_k(game_id, k, window_timestamp)
 
-    async def get_rank(self, game_id: str, user_id: str) -> Optional[RankInfo]:
+    async def get_rank(self, game_id: str, user_id: str, window_timestamp: Optional[datetime] = None) -> Optional[RankInfo]:
         """Get rank information for a user in a game"""
         if not self._initialized:
             await self.initialize()
-        return await self.score_manager.get_rank(game_id, user_id)
+        return await self.score_manager.get_rank(game_id, user_id, window_timestamp)
 
     # Add these methods to maintain backward compatibility
     async def acquire_connection(self):
