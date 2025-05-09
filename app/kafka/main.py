@@ -110,7 +110,7 @@ class KafkaProcessor:
                     await asyncio.sleep(1)
 
     async def stop(self):
-        """Stop the Kafka processor"""
+        """Stop the Kafka processor gracefully"""
         logger.info("Stopping Kafka processor...")
         self.processing = False
         if self.consumer:
@@ -126,3 +126,32 @@ class KafkaProcessor:
             except Exception as e:
                 logger.error(f"Error stopping Kafka producer: {e}")
         logger.info("Kafka processor stopped")
+
+    async def force_stop(self):
+        """Force stop the Kafka processor without waiting for graceful shutdown"""
+        logger.warning("Force stopping Kafka processor...")
+        self.processing = False
+        
+        # Cancel any pending tasks
+        for task in asyncio.all_tasks():
+            if task != asyncio.current_task():
+                task.cancel()
+        
+        # Force close consumer
+        if self.consumer:
+            try:
+                self.consumer._coordinator._coordination_task.cancel()
+                await self.consumer.stop()
+                logger.info("Kafka consumer force stopped")
+            except Exception as e:
+                logger.error(f"Error force stopping Kafka consumer: {e}")
+        
+        # Force close producer
+        if self.producer:
+            try:
+                await self.producer.stop()
+                logger.info("Kafka producer force stopped")
+            except Exception as e:
+                logger.error(f"Error force stopping Kafka producer: {e}")
+        
+        logger.info("Kafka processor force stopped")
