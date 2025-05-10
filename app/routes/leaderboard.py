@@ -31,7 +31,7 @@ async def get_leaders(
             await db.initialize()
             
         # Calculate timestamp for window
-        now = datetime.utcnow()
+        now = datetime.now()
         window_start = now - timedelta(hours=window)
         logger.info(f"Time window: {window_start} to {now}")
             
